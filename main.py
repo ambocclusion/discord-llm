@@ -1,8 +1,11 @@
+import json
 import discord
+
 from discord.app_commands import Range
 from litellm import acompletion
 
-key = ''
+config = json.loads(open("./config.json", "r").read())
+key = config['discord_api_key']
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(client)
@@ -10,16 +13,18 @@ model = "ollama/wizard-vicuna-uncensored:7b"
 
 
 @tree.command(name="talk", description="Talk to the AI")
-async def slash_command(interaction: discord.Interaction, message: str, temperature: Range[float, 0.01, 1.0] = 1.0):
+async def slash_command(interaction: discord.Interaction, message: str, temperature: Range[float, 0.01, 2.0] = 1.0):
     await interaction.response.defer()
     response = await acompletion(
         model=model,
-        messages=[{"content": message, "role": "user"}],
+        messages=[{"content": f"{message}", "role": "user"}],
         api_base="http://localhost:11434",
-        temperature=temperature
+        temperature=temperature,
+
     )
     print(response)
-    await interaction.followup.send(response["choices"][0].message.content, view=Buttons(interaction.user))
+    truncated_response = response["choices"][0].message.content[:1999]
+    await interaction.followup.send(truncated_response, view=Buttons(interaction.user))
 
 
 @client.event
@@ -38,7 +43,9 @@ async def on_message(message):
             prompt=full_context,
             api_base="http://localhost:11434"
         )
-        await replied_message.reply(response["choices"][0].message.content, view=Buttons(message.author))
+        print(response)
+        truncated_response = response["choices"][0].message.content[:1999]
+        await replied_message.reply(truncated_response, view=Buttons(message.author))
 
 
 class Buttons(discord.ui.View):
