@@ -1,1 +1,6 @@
+# Configuration file (sensitive).
 config.json
+
+# Editor files and dirs.
+.idea/
+vscode/
