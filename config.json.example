@@ -1,3 +1,5 @@
 {
-  "discord_api_key": "YOUR_API_KEY"
+  "api_url": "http://localhost:11434",
+  "discord_api_key": "YOUR_API_KEY".
+  "model": "ollama/wizard-vicuna-uncensored:7b"
 }
