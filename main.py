@@ -41,12 +41,8 @@ async def on_message(message):
         original_message_content = await message.channel.fetch_message(original_message)
         if original_message_content.author != client.user:
             return
-        full_context = (
-            "bot: " + original_message_content.content + "\n user:" + message.content
-        )
-        response = await acompletion(
-            model=model, prompt=full_context, api_base="http://localhost:11434"
-        )
+        full_context = "bot: " + original_message_content.content + "\n user:" + message.content
+        response = await acompletion(model=model, prompt=full_context, api_base="http://localhost:11434")
         print(response)
         truncated_response = response["choices"][0].message.content[:1999]
         await replied_message.reply(truncated_response, view=Buttons(message.author))
