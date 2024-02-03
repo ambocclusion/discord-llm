@@ -1,5 +1,18 @@
 {
   "api_url": "http://localhost:11434",
-  "discord_api_key": "YOUR_API_KEY".
-  "model": "ollama/wizard-vicuna-uncensored:7b"
+  "discord_api_key": "YOUR_API_KEY",
+  "characters": {
+    "default": {
+      "name": "Chatbot",
+      "model": "ollama/wizard-vicuna-uncensored:7b",
+      "avatar": "img/ollama.png",
+      "intro_message": "Chatbot is here!"
+    }
+  },
+  "announce_channels": [
+    "123456"
+  ],
+  "elevated_roles": [
+    "123456"
+  ]
 }
