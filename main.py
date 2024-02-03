@@ -1,8 +1,10 @@
 import json
+import random
 
 import discord
 from discord import app_commands
 from discord.app_commands import Range, commands
+from discord.ext import tasks
 from litellm import acompletion
 
 from character import Character
@@ -14,6 +16,8 @@ key = config["discord_api_key"]
 characters = config["characters"]
 current_character = characters["default"]
 announce_channels = config["announce_channels"]
+should_auto_switch_character = config["auto_switch_characters"]
+initialized_auto_character = False
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
@@ -75,6 +79,23 @@ async def slash_command(interaction: discord.Interaction, name: str):
     await change_character(character, interaction.guild)
 
 
+@tasks.loop(seconds=config["character_change_interval"])
+async def auto_change_character():
+    global initialized_auto_character, should_auto_switch_character
+    if not should_auto_switch_character:
+        return
+    if not initialized_auto_character:
+        initialized_auto_character = True
+        return
+    if len(characters) < 3:
+        return
+    character = current_character
+    while character == current_character or character["name"] == "default":
+        character = characters[random.choice(list(characters.keys()))]
+    for guild in client.guilds:
+        await change_character(character, guild)
+
+
 @slash_command.error
 async def slash_command_error(ctx, error):
     if isinstance(error, NotPermitted):
@@ -126,6 +147,7 @@ async def on_ready():
         await change_character(current_character, guild, True)
     cmds = await tree.sync()
     print("synced %d commands: %s." % (len(cmds), ", ".join(c.name for c in cmds)))
+    auto_change_character.start()
 
 
 if __name__ == "__main__":

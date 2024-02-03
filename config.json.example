@@ -9,6 +9,8 @@
       "intro_message": "Chatbot is here!"
     }
   },
+  "auto_switch_characters": false,
+  "character_change_interval": 10800,
   "announce_channels": [
     "123456"
   ],
