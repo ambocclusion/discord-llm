@@ -36,7 +36,7 @@ class ReplyModal(ui.Modal, title="Reply"):
         self.add_item(self.prompt)
 
     async def on_submit(self, interaction: discord.Interaction, /) -> None:
-        await interaction.response.send_message(f"**User:** {self.prompt}")
+        await interaction.response.send_message(f"{interaction.user.mention}: {self.prompt}")
         full_prompt = f"{self.history}\n **user:**{self.prompt}"
         print(full_prompt)
         response = await acompletion(
@@ -44,7 +44,8 @@ class ReplyModal(ui.Modal, title="Reply"):
             messages=[{"content": full_prompt, "role": "user"}],
             api_base=api_url,
             num_retries=3,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
+            timeout=40
         )
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
 
@@ -80,7 +81,8 @@ class Buttons(discord.ui.View):
             messages=[{"content": f"{self.reroll_history}", "role": "user"}],
             api_base=api_url,
             num_retries=3,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
+            timeout=40
         )
         # print(response)
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
@@ -122,7 +124,8 @@ async def slash_command(
         api_base=api_url,
         temperature=temperature,
         num_retries=3,
-        max_tokens=max_tokens
+        max_tokens=max_tokens,
+        timeout=40
     )
     print(response)
     truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
@@ -178,7 +181,8 @@ async def on_message(message):
             prompt=full_context,
             api_base=api_url,
             num_retries=3,
-            max_tokens=max_tokens
+            max_tokens=max_tokens,
+            timeout=40
         )
         print(response)
         truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
