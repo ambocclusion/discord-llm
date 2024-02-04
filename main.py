@@ -84,7 +84,6 @@ class Buttons(discord.ui.View):
             max_tokens=max_tokens,
             timeout=40
         )
-        # print(response)
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
         await interaction.message.edit(content=truncated_response, view=Buttons(self.original_author, self.reroll_history, self.reroll_history, self.character))
 
@@ -136,7 +135,6 @@ async def slash_command(
 @app_commands.choices(name=[app_commands.Choice(name=characters[key]["name"], value=key) for key in characters])
 @has_permission()
 async def slash_command(interaction: discord.Interaction, name: str):
-    # get character
     character = characters[name]
     await change_character(character, interaction.guild)
 
@@ -197,7 +195,6 @@ async def change_character(character: Character, guild: discord.Guild, silent=Fa
     current_character = character
 
     try:
-        # load avatar as bytes
         with open(character["avatar"], "rb") as avatar_file:
             await client.user.edit(avatar=avatar_file.read())
     except Exception as e:
