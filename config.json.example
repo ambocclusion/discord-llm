@@ -1,6 +1,7 @@
 {
   "api_url": "http://localhost:11434",
   "discord_api_key": "YOUR_API_KEY",
+  "max_tokens": 2048,
   "characters": {
     "default": {
       "name": "Chatbot",

@@ -2,7 +2,7 @@ import json
 import random
 
 import discord
-from discord import app_commands
+from discord import app_commands, ui
 from discord.app_commands import Range, commands
 from discord.ext import tasks
 from litellm import acompletion
@@ -12,6 +12,7 @@ from character import Character
 config = json.loads(open("./config.json", "r").read())
 api_url = config["api_url"]
 key = config["discord_api_key"]
+max_tokens = config["max_tokens"]
 
 characters = config["characters"]
 current_character = characters["default"]
@@ -24,29 +25,66 @@ client = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(client)
 
 
+class ReplyModal(ui.Modal, title="Reply"):
+    def __init__(self, history, character, original_author):
+        super().__init__(timeout=None)
+        self.history = history
+        self.character = character
+        self.original_author = original_author
+        self.prompt = ui.TextInput(label="Prompt", placeholder="Enter a prompt", max_length=256, required=True, default="", style=discord.TextStyle.paragraph)
+
+        self.add_item(self.prompt)
+
+    async def on_submit(self, interaction: discord.Interaction, /) -> None:
+        await interaction.response.send_message(f"**User:** {self.prompt}")
+        full_prompt = f"{self.history}\n **user:**{self.prompt}"
+        print(full_prompt)
+        response = await acompletion(
+            model=self.character["model"],
+            messages=[{"content": full_prompt, "role": "user"}],
+            api_base=api_url,
+            num_retries=3,
+            max_tokens=max_tokens
+        )
+        truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
+
+        self.history = full_prompt + "\n" + truncated_response
+        print(f"self.history: {self.history}")
+        await interaction.message.reply(content=truncated_response, view=Buttons(self.original_author, self.history, full_prompt, self.character))
+
+
 class Buttons(discord.ui.View):
-    def __init__(self, author, original_message, character, *args, **kwargs):
+    def __init__(self, author, reply_history, reroll_history, character, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.original_author = author
-        self.original_message = original_message
+        self.original_message = reply_history
+        self.reroll_history = reroll_history
         self.character = character
 
-    @discord.ui.button(label="Retry", style=discord.ButtonStyle.primary, emoji="🔄")
+    @discord.ui.button(label="Reply", style=discord.ButtonStyle.blurple, emoji="↪️")
+    async def reply(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.original_author:
+            return
+        modal = ReplyModal(self.original_message + "\n" + interaction.message.content, self.character, self.original_author)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Retry", style=discord.ButtonStyle.green, emoji="🔄")
     async def retry(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.original_author:
             return
         await interaction.response.defer()
         await interaction.message.edit(content="Retrying...", view=None)
-        print(self.original_message)
+        print(f"self.original_message: {self.reroll_history}")
         response = await acompletion(
             model=self.character["model"],
-            messages=[{"content": f"{self.original_message}", "role": "user"}],
+            messages=[{"content": f"{self.reroll_history}", "role": "user"}],
             api_base=api_url,
-            num_retries=3
+            num_retries=3,
+            max_tokens=max_tokens
         )
-        print(response)
+        # print(response)
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
-        await interaction.message.edit(content=truncated_response, view=Buttons(self.original_author, self.original_message, self.character))
+        await interaction.message.edit(content=truncated_response, view=Buttons(self.original_author, self.reroll_history, self.reroll_history, self.character))
 
     @discord.ui.button(label="Delete", style=discord.ButtonStyle.red, emoji="🗑️")
     async def delete(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -83,11 +121,12 @@ async def slash_command(
         messages=[{"content": f"{message}", "role": "user"}],
         api_base=api_url,
         temperature=temperature,
-        num_retries=3
+        num_retries=3,
+        max_tokens=max_tokens
     )
     print(response)
     truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
-    await interaction.followup.send(truncated_response, view=Buttons(interaction.user, message, character))
+    await interaction.followup.send(truncated_response, view=Buttons(interaction.user, message, message, character))
 
 
 @tree.command(name="change_character", description="Change the character")
@@ -134,10 +173,16 @@ async def on_message(message):
         if original_message_content.author != client.user:
             return
         full_context = original_message_content.content + "\n user:" + message.content
-        response = await acompletion(model=character["model"], prompt=full_context, api_base=api_url, num_retries=3)
+        response = await acompletion(
+            model=character["model"],
+            prompt=full_context,
+            api_base=api_url,
+            num_retries=3,
+            max_tokens=max_tokens
+        )
         print(response)
         truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
-        await replied_message.reply(truncated_response, view=Buttons(message.author, message.content, character))
+        await replied_message.reply(truncated_response, view=Buttons(message.author, truncated_response, full_context, character))
 
 
 async def change_character(character: Character, guild: discord.Guild, silent=False):
