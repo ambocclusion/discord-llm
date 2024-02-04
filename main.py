@@ -1,5 +1,7 @@
+import asyncio
 import json
 import random
+from dataclasses import dataclass
 
 import discord
 from discord import app_commands, ui
@@ -38,19 +40,10 @@ class ReplyModal(ui.Modal, title="Reply"):
     async def on_submit(self, interaction: discord.Interaction, /) -> None:
         await interaction.response.send_message(f"{interaction.user.mention}: {self.prompt}")
         full_prompt = f"{self.history}\n **user:**{self.prompt}"
-        print(full_prompt)
-        response = await acompletion(
-            model=self.character["model"],
-            messages=[{"content": full_prompt, "role": "user"}],
-            api_base=api_url,
-            num_retries=3,
-            max_tokens=max_tokens,
-            timeout=40
-        )
+        response = await generate(full_prompt, self.character)
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
 
         self.history = full_prompt + "\n" + truncated_response
-        print(f"self.history: {self.history}")
         await interaction.message.reply(content=truncated_response, view=Buttons(self.original_author, self.history, full_prompt, self.character))
 
 
@@ -75,15 +68,7 @@ class Buttons(discord.ui.View):
             return
         await interaction.response.defer()
         await interaction.message.edit(content="Retrying...", view=None)
-        print(f"self.original_message: {self.reroll_history}")
-        response = await acompletion(
-            model=self.character["model"],
-            messages=[{"content": f"{self.reroll_history}", "role": "user"}],
-            api_base=api_url,
-            num_retries=3,
-            max_tokens=max_tokens,
-            timeout=40
-        )
+        response = await generate(self.reroll_history, self.character)
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
         await interaction.message.edit(content=truncated_response, view=Buttons(self.original_author, self.reroll_history, self.reroll_history, self.character))
 
@@ -107,6 +92,45 @@ def has_permission():
     return discord.app_commands.check(predicate)
 
 
+queue = []
+
+
+@dataclass
+class GenerationQueueItem:
+    def __init__(self, message, character):
+        self.message = message
+        self.character = character
+        self.response = None
+
+
+async def generate(message, character):
+    global queue
+    item = GenerationQueueItem(message, character)
+    queue.append(item)
+    while item.response is None:
+        await asyncio.sleep(1)
+    return item.response
+
+
+async def process_generation_queue():
+    global queue
+    while True:
+        if len(queue) > 0:
+            item = queue.pop(0)
+            print(f"processing: {item.message}")
+            response = await acompletion(
+                model=item.character["model"],
+                messages=[{"content": f"{item.message}", "role": "user"}],
+                api_base=api_url,
+                num_retries=3,
+                max_tokens=max_tokens,
+                timeout=40
+            )
+            print(f"response: {response}")
+            item.response = response
+        await asyncio.sleep(1)
+
+
 @tree.command(name="talk", description="Talk to the AI")
 @app_commands.choices(character_name=[app_commands.Choice(name=characters[key]["name"], value=key) for key in characters])
 async def slash_command(
@@ -117,16 +141,7 @@ async def slash_command(
 ):
     await interaction.response.defer()
     character = characters[character_name] if character_name else current_character
-    response = await acompletion(
-        model=character["model"],
-        messages=[{"content": f"{message}", "role": "user"}],
-        api_base=api_url,
-        temperature=temperature,
-        num_retries=3,
-        max_tokens=max_tokens,
-        timeout=40
-    )
-    print(response)
+    response = await generate(message, character)
     truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
     await interaction.followup.send(truncated_response, view=Buttons(interaction.user, message, message, character))
 
@@ -174,15 +189,7 @@ async def on_message(message):
         if original_message_content.author != client.user:
             return
         full_context = original_message_content.content + "\n user:" + message.content
-        response = await acompletion(
-            model=character["model"],
-            prompt=full_context,
-            api_base=api_url,
-            num_retries=3,
-            max_tokens=max_tokens,
-            timeout=40
-        )
-        print(response)
+        response = await generate(full_context, character)
         truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
         await replied_message.reply(truncated_response, view=Buttons(message.author, truncated_response, full_context, character))
 
@@ -209,6 +216,7 @@ async def change_character(character: Character, guild: discord.Guild, silent=Fa
 @client.event
 async def on_ready():
     global current_character
+    asyncio.create_task(process_generation_queue())
     for guild in client.guilds:
         await change_character(current_character, guild, True)
     cmds = await tree.sync()
