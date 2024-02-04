@@ -14,6 +14,8 @@ from character import Character
 config = json.loads(open("./config.json", "r").read())
 api_url = config["api_url"]
 key = config["discord_api_key"]
+minimum_tokens = config["minimum_tokens"]
+max_retries = config["max_retries"]
 max_tokens = config["max_tokens"]
 
 characters = config["characters"]
@@ -26,40 +28,44 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(client)
 
+queue = []
+
 
 class ReplyModal(ui.Modal, title="Reply"):
-    def __init__(self, history, character, original_author):
+    def __init__(self, history, character, original_author, temperature):
         super().__init__(timeout=None)
         self.history = history
         self.character = character
         self.original_author = original_author
-        self.prompt = ui.TextInput(label="Prompt", placeholder="Enter a prompt", max_length=256, required=True, default="", style=discord.TextStyle.paragraph)
+        self.temperature = temperature
 
+        self.prompt = ui.TextInput(label="Prompt", placeholder="Enter a prompt", max_length=256, required=True, default="", style=discord.TextStyle.paragraph)
         self.add_item(self.prompt)
 
     async def on_submit(self, interaction: discord.Interaction, /) -> None:
         await interaction.response.send_message(f"{interaction.user.mention}: {self.prompt}")
         full_prompt = f"{self.history}\n **user:**{self.prompt}"
-        response = await generate(full_prompt, self.character)
+        response = await generate(full_prompt, self.character, self.temperature)
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
 
         self.history = full_prompt + "\n" + truncated_response
-        await interaction.message.reply(content=truncated_response, view=Buttons(self.original_author, self.history, full_prompt, self.character))
+        await interaction.message.reply(content=truncated_response, view=Buttons(self.original_author, self.history, full_prompt, self.character, self.temperature))
 
 
 class Buttons(discord.ui.View):
-    def __init__(self, author, reply_history, reroll_history, character, *args, **kwargs):
+    def __init__(self, author, reply_history, reroll_history, character, temperature=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.original_author = author
         self.original_message = reply_history
         self.reroll_history = reroll_history
         self.character = character
+        self.temperature = temperature
 
     @discord.ui.button(label="Reply", style=discord.ButtonStyle.blurple, emoji="↪️")
     async def reply(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.original_author:
             return
-        modal = ReplyModal(self.original_message + "\n" + interaction.message.content, self.character, self.original_author)
+        modal = ReplyModal(self.original_message + "\n" + interaction.message.content, self.character, self.original_author, self.temperature)
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Retry", style=discord.ButtonStyle.green, emoji="🔄")
@@ -68,7 +74,7 @@ class Buttons(discord.ui.View):
             return
         await interaction.response.defer()
         await interaction.message.edit(content="Retrying...", view=None)
-        response = await generate(self.reroll_history, self.character)
+        response = await generate(self.reroll_history, self.character, self.temperature)
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
         await interaction.message.edit(content=truncated_response, view=Buttons(self.original_author, self.reroll_history, self.reroll_history, self.character))
 
@@ -92,20 +98,18 @@ def has_permission():
     return discord.app_commands.check(predicate)
 
 
-queue = []
-
-
 @dataclass
 class GenerationQueueItem:
-    def __init__(self, message, character):
+    def __init__(self, message, character, temperature):
         self.message = message
         self.character = character
         self.response = None
+        self.temperature = temperature
 
 
-async def generate(message, character):
+async def generate(message, character, temperature=None):
     global queue
-    item = GenerationQueueItem(message, character)
+    item = GenerationQueueItem(message, character, temperature)
     queue.append(item)
     while item.response is None:
         await asyncio.sleep(1)
@@ -117,16 +121,22 @@ async def process_generation_queue():
     while True:
         if len(queue) > 0:
             item = queue.pop(0)
-            print(f"processing: {item.message}")
-            response = await acompletion(
-                model=item.character["model"],
-                messages=[{"content": f"{item.message}", "role": "user"}],
-                api_base=api_url,
-                num_retries=3,
-                max_tokens=max_tokens,
-                timeout=40
-            )
-            print(f"response: {response}")
+            tokens = 0
+            retries = 0
+            while tokens < minimum_tokens and retries < max_retries:
+                response = await acompletion(
+                    model=item.character["model"],
+                    messages=[{"content": f"{item.message}", "role": "user"}],
+                    temperature=item.temperature,
+                    api_base=api_url,
+                    num_retries=max_retries,
+                    max_tokens=max_tokens,
+                    timeout=40
+                )
+                tokens = int(response["usage"]["completion_tokens"])
+                if response["choices"][0].message.content.strip() == "":
+                    tokens = 0
+                retries += 1
             item.response = response
         await asyncio.sleep(1)
 
@@ -136,14 +146,14 @@ async def process_generation_queue():
 async def slash_command(
         interaction: discord.Interaction,
         message: str,
-        temperature: Range[float, 0.01, 2.0] = 1.0,
+        temperature: Range[float, 0.01, 2.0] = None,
         character_name: str = None
 ):
     await interaction.response.defer()
     character = characters[character_name] if character_name else current_character
-    response = await generate(message, character)
+    response = await generate(message, character, temperature)
     truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
-    await interaction.followup.send(truncated_response, view=Buttons(interaction.user, message, message, character))
+    await interaction.followup.send(truncated_response, view=Buttons(interaction.user, message, message, character, temperature))
 
 
 @tree.command(name="change_character", description="Change the character")
