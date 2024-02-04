@@ -25,9 +25,28 @@ tree = discord.app_commands.CommandTree(client)
 
 
 class Buttons(discord.ui.View):
-    def __init__(self, author, *args, **kwargs):
+    def __init__(self, author, original_message, character, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.original_author = author
+        self.original_message = original_message
+        self.character = character
+
+    @discord.ui.button(label="Retry", style=discord.ButtonStyle.primary, emoji="🔄")
+    async def retry(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.original_author:
+            return
+        await interaction.response.defer()
+        await interaction.message.edit(content="Retrying...", view=None)
+        print(self.original_message)
+        response = await acompletion(
+            model=self.character["model"],
+            messages=[{"content": f"{self.original_message}", "role": "user"}],
+            api_base=api_url,
+            num_retries=3
+        )
+        print(response)
+        truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
+        await interaction.message.edit(content=truncated_response, view=Buttons(self.original_author, self.original_message, self.character))
 
     @discord.ui.button(label="Delete", style=discord.ButtonStyle.red, emoji="🗑️")
     async def delete(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -64,10 +83,11 @@ async def slash_command(
         messages=[{"content": f"{message}", "role": "user"}],
         api_base=api_url,
         temperature=temperature,
+        num_retries=3
     )
     print(response)
     truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
-    await interaction.followup.send(truncated_response, view=Buttons(interaction.user))
+    await interaction.followup.send(truncated_response, view=Buttons(interaction.user, message, character))
 
 
 @tree.command(name="change_character", description="Change the character")
@@ -113,11 +133,11 @@ async def on_message(message):
         character = current_character
         if original_message_content.author != client.user:
             return
-        full_context = "bot: " + original_message_content.content + "\n user:" + message.content
-        response = await acompletion(model=character["model"], prompt=full_context, api_base=api_url)
+        full_context = original_message_content.content + "\n user:" + message.content
+        response = await acompletion(model=character["model"], prompt=full_context, api_base=api_url, num_retries=3)
         print(response)
         truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
-        await replied_message.reply(truncated_response, view=Buttons(message.author))
+        await replied_message.reply(truncated_response, view=Buttons(message.author, message.content, character))
 
 
 async def change_character(character: Character, guild: discord.Guild, silent=False):
