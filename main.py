@@ -83,6 +83,17 @@ class Buttons(discord.ui.View):
         if interaction.user == self.original_author:
             await interaction.message.delete()
 
+    @discord.ui.button(label="Log", style=discord.ButtonStyle.grey, emoji="📝")
+    async def log(self, interaction: discord.Interaction, button: discord.ui.Button):
+        message = f"```{self.reroll_history} \n {interaction.message.content}```"
+        if len(message) >= 2000:
+            with open("log.txt", "w") as log:
+                log.write(message)
+            with open("log.txt", "rb") as log:
+                await interaction.response.send_message("Log is too large, sending as a file.", file=discord.File(log, filename="log.txt"))
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+
 
 class NotPermitted(commands.CheckFailure):
     pass
