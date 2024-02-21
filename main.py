@@ -48,6 +48,9 @@ class ReplyModal(ui.Modal, title="Reply"):
         await interaction.response.send_message(f"{interaction.user.mention}: {self.prompt}")
         full_prompt = f"{self.history}\n **user:**{self.prompt}"
         response = await generate(full_prompt, self.character, self.temperature)
+        if response is None:
+            await interaction.message.reply("Failed to generate a response. Please try again.", view=Buttons(self.original_author, self.history, self.history, self.character, self.temperature))
+            return
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
 
         self.history = full_prompt + "\n" + truncated_response
@@ -62,6 +65,7 @@ class Buttons(discord.ui.View):
         self.reroll_history = reroll_history
         self.character = character
         self.temperature = temperature
+        self.timeout = None
 
     @discord.ui.button(label="Reply", style=discord.ButtonStyle.blurple, emoji="↪️")
     async def reply(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -77,6 +81,9 @@ class Buttons(discord.ui.View):
         await interaction.response.defer()
         await interaction.message.edit(content="Retrying...", view=None)
         response = await generate(self.reroll_history, self.character, self.temperature)
+        if response is None:
+            await interaction.message.reply("Failed to generate a response. Please try again.", view=Buttons(self.original_author, self.history, self.history, self.character, self.temperature))
+            return
         truncated_response = f"**{self.character['name']}:**\n" + response["choices"][0].message.content[:1800]
         await interaction.message.edit(content=truncated_response, view=Buttons(self.original_author, self.reroll_history, self.reroll_history, self.character))
 
@@ -118,6 +125,7 @@ class GenerationQueueItem:
         self.character = character
         self.response = None
         self.temperature = temperature
+        self.failed = False
 
 
 async def generate(message, character, temperature=None):
@@ -126,7 +134,9 @@ async def generate(message, character, temperature=None):
     queue.append(item)
     while item.response is None:
         await asyncio.sleep(1)
-    return item.response
+    if item.failed == False:
+        return item.response
+    return None
 
 
 def contains_blocked_terms(content):
@@ -140,7 +150,7 @@ async def process_generation_queue():
             item = queue.pop(0)
             tokens = 0
             retries = 0
-            while tokens < minimum_tokens and retries < max_retries:
+            while tokens < minimum_tokens:
                 response = await acompletion(
                     model=item.character["model"],
                     messages=[{"content": f"{item.message}", "role": "user"}],
@@ -157,6 +167,10 @@ async def process_generation_queue():
                     print(f"said a bad word: {response['choices'][0].message.content}")
                     tokens = 0
                 retries += 1
+                if retries >= max_retries:
+                    print(f"Failed to generate a response: {response}")
+                    item.failed = True
+                    break
             item.response = response
         await asyncio.sleep(1)
 
@@ -172,6 +186,9 @@ async def slash_command(
     await interaction.response.defer()
     character = characters[character_name] if character_name else current_character
     response = await generate(message, character, temperature)
+    if response is None:
+        await interaction.followup.send("Failed to generate a response. Please try again.", view=Buttons(interaction.user, message, message, character, temperature))
+        return
     truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
     await interaction.followup.send(truncated_response, view=Buttons(interaction.user, message, message, character, temperature))
 
@@ -220,6 +237,9 @@ async def on_message(message):
             return
         full_context = original_message_content.content + "\n user:" + message.content
         response = await generate(full_context, character)
+        if response is None:
+            await interaction.message.reply("Failed to generate a response. Please try again.", view=Buttons(self.original_author, self.history, self.history, self.character, self.temperature))
+            return
         truncated_response = f"**{character['name']}:**\n" + response["choices"][0].message.content[:1800]
         await replied_message.reply(truncated_response, view=Buttons(message.author, truncated_response, full_context, character))
 
