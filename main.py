@@ -1,4 +1,5 @@
 import asyncio
+import csv
 import json
 import random
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from litellm import acompletion
 from character import Character
 
 config = json.loads(open("./config.json", "r").read())
+blocked_llm_terms = list(csv.reader(open("./blocked_llm_terms.csv", "r")))
 api_url = config["api_url"]
 key = config["discord_api_key"]
 minimum_tokens = config["minimum_tokens"]
@@ -127,6 +129,10 @@ async def generate(message, character, temperature=None):
     return item.response
 
 
+def contains_blocked_terms(content):
+    return any(term in content.lower() for row in blocked_llm_terms for term in row)
+
+
 async def process_generation_queue():
     global queue
     while True:
@@ -146,6 +152,9 @@ async def process_generation_queue():
                 )
                 tokens = int(response["usage"]["completion_tokens"])
                 if response["choices"][0].message.content.strip() == "":
+                    tokens = 0
+                if contains_blocked_terms(response["choices"][0].message.content.strip()):
+                    print(f"said a bad word: {response['choices'][0].message.content}")
                     tokens = 0
                 retries += 1
             item.response = response
