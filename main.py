@@ -263,7 +263,7 @@ async def change_character(character: Character, guild: discord.Guild, silent=Fa
             await channel.send(character["intro_message"])
 
 @tasks.loop(hours=8)
-async def daily_news_article(blank):
+async def daily_news_article():
     url = config["news_api_url"] + config["news_api_key"]
     system_prompt = config["news_responder_system_prompt"]
     import requests
