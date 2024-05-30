@@ -74,7 +74,7 @@ class Buttons(discord.ui.View):
         modal = ReplyModal(self.original_message + "\n" + interaction.message.content, self.character, self.original_author, self.temperature)
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Retry", style=discord.ButtonStyle.green, emoji="🔄")
+    #@discord.ui.button(label="Retry", style=discord.ButtonStyle.green, emoji="🔄")
     async def retry(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.original_author:
             return
