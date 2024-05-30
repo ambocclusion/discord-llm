@@ -19,5 +19,9 @@
   ],
   "elevated_roles": [
     "123456"
-  ]
+  ],
+  "news_api_key": "abcdef",
+  "news_api_url": "",
+  "news_responder": "carbman",
+  "news_responder_system_prompt": "",
 }

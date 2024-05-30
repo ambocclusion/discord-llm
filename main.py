@@ -262,6 +262,24 @@ async def change_character(character: Character, guild: discord.Guild, silent=Fa
             channel = await client.fetch_channel(channel_id)
             await channel.send(character["intro_message"])
 
+@tasks.loop(hours=8)
+async def daily_news_article(blank):
+    url = config["news_api_url"] + config["news_api_key"]
+    system_prompt = config["news_responder_system_prompt"]
+    import requests
+    response = requests.get(url)
+    data = response.json()
+    headline = random.choice(data["results"])["title"]
+    prompt = f"{system_prompt} {headline}"
+    character = characters[config["news_responder"]]
+    response = await generate(prompt, character)
+    if response is None:
+        return
+    truncated_response = f"**{character['name']}:**\n`{headline}`\n" + response["choices"][0].message.content[:1800]
+    for channel_id in announce_channels:
+        channel = await client.fetch_channel(channel_id)
+        await channel.send(truncated_response)
+
 
 @client.event
 async def on_ready():
@@ -272,6 +290,7 @@ async def on_ready():
     cmds = await tree.sync()
     print("synced %d commands: %s." % (len(cmds), ", ".join(c.name for c in cmds)))
     auto_change_character.start()
+    daily_news_article.start()
 
 
 if __name__ == "__main__":
